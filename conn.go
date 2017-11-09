@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"os"
 	"os/user"
@@ -86,10 +87,55 @@ type Dialer interface {
 type defaultDialer struct{}
 
 func (d defaultDialer) Dial(ntw, addr string) (net.Conn, error) {
-	return net.Dial(ntw, addr)
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return net.Dial(ntw, addr)
+	}
+
+	var dialer net.Dialer
+	hs, err := net.LookupHost(host)
+	if err != nil || len(hs) == 0 {
+		return net.Dial(ntw, addr)
+	}
+
+	var firstErr error
+	for _, i := range rand.Perm(len(hs)) {
+		c, err := dialer.Dial(ntw, net.JoinHostPort(hs[i], port))
+		if err == nil {
+			return c, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return nil, firstErr
 }
+
 func (d defaultDialer) DialTimeout(ntw, addr string, timeout time.Duration) (net.Conn, error) {
-	return net.DialTimeout(ntw, addr, timeout)
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return net.Dial(ntw, addr)
+	}
+
+	dialer := net.Dialer{Timeout: timeout}
+	hs, err := net.LookupHost(host)
+	if err != nil || len(hs) == 0 {
+		return net.Dial(ntw, addr)
+	}
+
+	var firstErr error
+	for _, i := range rand.Perm(len(hs)) {
+		c, err := dialer.Dial(ntw, net.JoinHostPort(hs[i], port))
+		if err == nil {
+			return c, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return nil, firstErr
 }
 
 type conn struct {
